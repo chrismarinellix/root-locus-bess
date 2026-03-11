@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Root Locus Analysis — BESS Grid-Connected Inverter</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0f;color:#e0e0e0;font-family:'Segoe UI',system-ui,sans-serif;overflow-x:hidden;min-height:100vh}
+#header{padding:20px 32px 12px;position:relative;z-index:10}
+#header h1{font-size:1.5rem;font-weight:300;color:#fff;letter-spacing:0.5px}
+#header p{font-size:0.82rem;color:#888;margin-top:3px}
+.accent-line{width:200px;height:3px;background:linear-gradient(90deg,#FFB800,#FFB80000);margin-top:8px;border-radius:2px}
+#main-container{display:flex;position:relative;z-index:5;height:calc(100vh - 90px);min-height:500px}
+#plot-area{flex:1;position:relative;overflow:hidden}
+#webgpu-canvas{position:absolute;inset:0;z-index:1;cursor:crosshair}
+#text-canvas{position:absolute;inset:0;z-index:2;pointer-events:none}
+#step-response-canvas{position:absolute;bottom:16px;left:16px;z-index:3;width:300px;height:200px;border:1px solid rgba(255,255,255,0.1);border-radius:6px;background:rgba(10,10,15,0.9)}
+#tooltip{position:absolute;z-index:20;pointer-events:none;background:rgba(15,15,25,0.95);border:1px solid rgba(255,184,0,0.4);border-radius:4px;padding:8px 12px;font-size:0.72rem;color:#ccc;display:none;white-space:nowrap;backdrop-filter:blur(4px)}
+#gpu-error{display:none;position:absolute;inset:0;z-index:50;background:#0a0a0f;color:#ff6b6b;font-size:1.2rem;justify-content:center;align-items:center;text-align:center;padding:40px;flex-direction:column;gap:16px}
+#gpu-error span{color:#888;font-size:0.85rem}
+#view-hint{position:absolute;bottom:16px;right:360px;z-index:10;color:rgba(255,255,255,0.3);font-size:0.7rem;pointer-events:none;text-align:right;line-height:1.5}
+#control-panel{width:320px;background:rgba(15,15,25,0.88);border-left:1px solid rgba(255,255,255,0.06);overflow-y:auto;z-index:10;backdrop-filter:blur(8px);padding:14px}
+.ps{margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.06)}
+.ps h3{font-size:0.75rem;text-transform:uppercase;letter-spacing:1.5px;color:#FFB800;margin-bottom:10px;font-weight:500}
+.sg{margin-bottom:8px}
+.sg label{display:flex;justify-content:space-between;font-size:0.72rem;color:#aaa;margin-bottom:2px}
+.sg label span.v{color:#FFB800;font-family:'Consolas',monospace;min-width:55px;text-align:right}
+.sg input[type=range]{width:100%;height:4px;-webkit-appearance:none;background:rgba(255,255,255,0.1);border-radius:2px;outline:none}
+.sg input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#FFB800;cursor:pointer;box-shadow:0 0 6px rgba(255,184,0,0.4)}
+.sg input[type=number]{width:65px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#FFB800;font-family:'Consolas',monospace;font-size:0.72rem;padding:2px 5px;border-radius:3px;text-align:right}
+.kc{display:flex;align-items:center;gap:6px}.kc input[type=range]{flex:1}
+.cb{display:flex;align-items:center;gap:7px;margin-bottom:5px;font-size:0.72rem;color:#aaa}
+.cb input[type=checkbox]{accent-color:#FFB800}
+#stability-badge{text-align:center;padding:8px;border-radius:5px;font-size:0.95rem;font-weight:700;letter-spacing:2px;margin-bottom:10px;transition:all 0.3s}
+.badge-s{background:rgba(0,200,80,0.15);color:#00c850;border:1px solid rgba(0,200,80,0.3)}
+.badge-m{background:rgba(255,184,0,0.15);color:#FFB800;border:1px solid rgba(255,184,0,0.3)}
+.badge-u{background:rgba(255,50,50,0.15);color:#ff3232;border:1px solid rgba(255,50,50,0.3);animation:pr 1.5s infinite}
+@keyframes pr{0%,100%{box-shadow:0 0 8px rgba(255,50,50,0.2)}50%{box-shadow:0 0 20px rgba(255,50,50,0.5)}}
+.cg{display:grid;grid-template-columns:1fr 1fr;gap:3px 10px;font-size:0.68rem}
+.cg .l{color:#888}.cg .v{color:#e0e0e0;font-family:'Consolas',monospace;text-align:right}
+.pl{font-size:0.66rem;font-family:'Consolas',monospace;color:#aaa;max-height:110px;overflow-y:auto;margin-top:5px;line-height:1.5}
+.pl .d{color:#FFB800;font-weight:600}
+#bp{display:flex;gap:1px;background:rgba(255,255,255,0.03);z-index:10;position:relative}
+.tp{flex:1;background:rgba(10,10,18,0.95)}
+.tp .th{padding:10px 18px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.06)}
+.tp .th h3{font-size:0.82rem;color:#FFB800;font-weight:400}
+.tp .th .tg{color:#666;font-size:0.8rem;transition:transform 0.3s}
+.tp .th .tg.cl{transform:rotate(-90deg)}
+.tp .tb{padding:14px 18px;font-size:0.78rem;line-height:1.7;color:#e0e0e0}
+.tp .tb.hd{display:none}
+.tp .tb .dt{white-space:pre-wrap}
+#guidance-toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;background:rgba(10,10,25,0.96);border:1px solid rgba(255,184,0,0.5);border-radius:8px;padding:14px 22px;max-width:520px;font-size:0.78rem;line-height:1.6;color:#e8e8e8;pointer-events:none;opacity:0;transition:opacity 0.4s,transform 0.4s;backdrop-filter:blur(10px);box-shadow:0 4px 24px rgba(0,0,0,0.5)}
+#guidance-toast.show{opacity:1;pointer-events:auto}
+#guidance-toast .gt-title{color:#FFB800;font-weight:600;font-size:0.82rem;margin-bottom:6px}
+#guidance-toast .gt-body{color:#ddd}
+@media print{#webgpu-canvas,#text-canvas{display:none}body{background:#fff;color:#222}}
+@media(max-width:900px){#main-container{flex-direction:column;height:auto}#plot-area{min-height:400px}#control-panel{width:100%}#bp{flex-direction:column}}
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>Root Locus Analysis — BESS Grid-Connected Inverter</h1>
+  <p>LCL Filter Current Control Loop — 3D Interactive Stability Analysis</p>
+  <div class="accent-line"></div>
+</div>
+<div id="main-container">
+  <div id="plot-area">
+    <div id="gpu-error">WebGPU Required<br><span>Chrome 113+ or Edge 113+</span></div>
+    <canvas id="webgpu-canvas"></canvas>
+    <canvas id="text-canvas"></canvas>
+    <canvas id="step-response-canvas"></canvas>
+    <div id="tooltip"></div>
+    <div id="view-hint">Shift+Drag to orbit · Scroll to zoom<br>Click branch to set K · Drag to pan</div>
+  </div>
+  <div id="control-panel">
+    <div class="ps">
+      <h3>System Parameters</h3>
+      <div class="sg"><label>K (Gain) <span class="v" id="k-val">100</span></label>
+        <div class="kc"><input type="range" id="k-slider" min="0" max="5000" value="100" step="1">
+        <input type="number" id="k-num" min="0" max="5000" value="100" step="1"></div></div>
+      <div class="sg"><label>L₁ (mH) <span class="v" id="l1-val">1.8</span></label>
+        <input type="range" id="l1-slider" min="0.5" max="5.0" value="1.8" step="0.1"></div>
+      <div class="sg"><label>L₂ (mH) <span class="v" id="l2-val">0.9</span></label>
+        <input type="range" id="l2-slider" min="0.2" max="3.0" value="0.9" step="0.1"></div>
+      <div class="sg"><label>Cf (µF) <span class="v" id="cf-val">10</span></label>
+        <input type="range" id="cf-slider" min="1" max="50" value="10" step="1"></div>
+      <div class="sg"><label>τd (µs) <span class="v" id="td-val">50</span></label>
+        <input type="range" id="td-slider" min="10" max="200" value="50" step="5"></div>
+      <div class="sg"><label>z (rad/s) <span class="v" id="z-val">500</span></label>
+        <input type="range" id="z-slider" min="50" max="2000" value="500" step="50"></div>
+    </div>
+    <div class="ps">
+      <h3>Display</h3>
+      <label class="cb"><input type="checkbox" id="chk-damping" checked> ζ damping lines</label>
+      <label class="cb"><input type="checkbox" id="chk-wn" checked> ωₙ semicircles</label>
+      <label class="cb"><input type="checkbox" id="chk-asymptotes" checked> Asymptotes</label>
+      <label class="cb"><input type="checkbox" id="chk-kplane" checked> K-plane slice</label>
+      <label class="cb"><input type="checkbox" id="chk-particles" checked> Flow particles</label>
+      <label class="cb"><input type="checkbox" id="chk-animate"> Auto-sweep K</label>
+      <div class="sg" style="margin-top:6px"><label>Zoom <span class="v" id="zoom-val">1.0×</span></label>
+        <input type="range" id="zoom-slider" min="0.3" max="4" value="1" step="0.1"></div>
+    </div>
+    <div class="ps">
+      <h3>Operating Point</h3>
+      <div id="stability-badge" class="badge-s">STABLE</div>
+      <div class="cg">
+        <span class="l">Damping ζ</span><span class="v" id="cv-zeta">—</span>
+        <span class="l">ωₙ</span><span class="v" id="cv-wn">—</span>
+        <span class="l">Gain margin</span><span class="v" id="cv-gm">—</span>
+        <span class="l">Phase margin</span><span class="v" id="cv-pm">—</span>
+        <span class="l">ω_res</span><span class="v" id="cv-wres">—</span>
+        <span class="l">K_crit</span><span class="v" id="cv-kcrit">—</span>
+      </div>
+      <div class="pl" id="pole-list"></div>
+    </div>
+  </div>
+</div>
+<div id="guidance-toast"><div class="gt-title"></div><div class="gt-body"></div></div>
+<div id="bp">
+  <div class="tp"><div class="th" onclick="togglePanel('pe')"><h3>Plain English</h3><span class="tg" id="pe-toggle">▼</span></div>
+    <div class="tb" id="pe-body"><div class="dt" id="pe-text"></div></div></div>
+  <div class="tp"><div class="th" onclick="togglePanel('te')"><h3>Technical Analysis</h3><span class="tg" id="te-toggle">▼</span></div>
+    <div class="tb" id="te-body"><div class="dt" id="te-text"></div></div></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+//  COMPLEX ARITHMETIC
+// ═══════════════════════════════════════════════
+const cAdd=(a,b)=>[a[0]+b[0],a[1]+b[1]];
+const cSub=(a,b)=>[a[0]-b[0],a[1]-b[1]];
+const cMul=(a,b)=>[a[0]*b[0]-a[1]*b[1],a[0]*b[1]+a[1]*b[0]];
+const cDiv=(a,b)=>{const d=b[0]*b[0]+b[1]*b[1];return d<1e-60?[0,0]:[(a[0]*b[0]+a[1]*b[1])/d,(a[1]*b[0]-a[0]*b[1])/d];};
+const cAbs=a=>Math.sqrt(a[0]*a[0]+a[1]*a[1]);
+const cArg=a=>Math.atan2(a[1],a[0]);
+
+// ═══════════════════════════════════════════════
+//  POLYNOMIAL & ROOT FINDING
+// ═══════════════════════════════════════════════
+function polyEval(c,z){let r=[c[0],0];for(let i=1;i<c.length;i++)r=cAdd(cMul(r,z),[c[i],0]);return r;}
+function findRoots(coeffs){
+  let n=coeffs.length-1;if(n<=0)return[];
+  if(n===1)return[[-coeffs[1]/coeffs[0],0]];
+  if(n===2){const a=coeffs[0],b=coeffs[1],c=coeffs[2],d=b*b-4*a*c;
+    if(d>=0){const s=Math.sqrt(d);return[[(-b+s)/(2*a),0],[(-b-s)/(2*a),0]];}
+    else{const s=Math.sqrt(-d);return[[-b/(2*a),s/(2*a)],[-b/(2*a),-s/(2*a)]];}}
+  let tz=0;while(tz<n&&Math.abs(coeffs[n-tz])<1e-30)tz++;
+  const red=coeffs.slice(0,n+1-tz);let roots=[];
+  if(red.length>1)roots=durandKerner(red);
+  for(let i=0;i<tz;i++)roots.push([0,0]);return roots;}
+function durandKerner(coeffs){
+  const n=coeffs.length-1;if(n<=0)return[];if(n===1)return[[-coeffs[1]/coeffs[0],0]];
+  const lead=coeffs[0];const d=coeffs.map(v=>v/lead);
+  const alpha=Math.pow(Math.max(Math.abs(d[n]),1e-20),1/n);
+  const sc=d.map((v,i)=>v/Math.pow(alpha,i));
+  const R=1+Math.max(...sc.slice(1).map(v=>Math.abs(v)));
+  let roots=[];for(let i=0;i<n;i++){const a=2*Math.PI*i/n+0.4+0.1*i;roots.push([R*0.9*Math.cos(a),R*0.9*Math.sin(a)]);}
+  for(let it=0;it<300;it++){let mx=0;for(let i=0;i<n;i++){const pv=polyEval(sc,roots[i]);let dn=[1,0];
+    for(let j=0;j<n;j++)if(j!==i)dn=cMul(dn,cSub(roots[i],roots[j]));
+    if(cAbs(dn)<1e-40)continue;const dl=cDiv(pv,dn);roots[i]=cSub(roots[i],dl);mx=Math.max(mx,cAbs(dl));}
+    if(mx<1e-12)break;}
+  return roots.map(r=>[r[0]*alpha,r[1]*alpha]);}
+
+// ═══════════════════════════════════════════════
+//  SYSTEM MODEL
+// ═══════════════════════════════════════════════
+function getParams(){return{K:+$('k-slider').value,L1:+$('l1-slider').value*1e-3,L2:+$('l2-slider').value*1e-3,
+  Cf:+$('cf-slider').value*1e-6,td:+$('td-slider').value*1e-6,z:+$('z-slider').value};}
+function $(id){return document.getElementById(id);}
+function getOLPoles(p){const w=Math.sqrt((p.L1+p.L2)/(p.L1*p.L2*p.Cf));return[[0,0],[0,0],[-1/p.td,0],[0,w],[0,-w]];}
+function getOLZeros(p){return[[-p.z,0]];}
+function wRes(p){return Math.sqrt((p.L1+p.L2)/(p.L1*p.L2*p.Cf));}
+function charPoly(p,K){const{L1,L2,Cf,td,z}=p;const a=L1*L2*Cf,b=L1+L2;return[td*a,a,td*b,b,K,K*z];}
+
+// ═══════════════════════════════════════════════
+//  ROOT LOCUS COMPUTATION
+// ═══════════════════════════════════════════════
+let LC=null; // locus cache
+function computeLocus(p,kMax,nS){
+  kMax=kMax||5000;nS=nS||500;
+  const kV=[0];for(let i=1;i<=nS;i++){const t=i/nS;kV.push(kMax*(t<0.2?t*t/0.04*0.2:t));}
+  const kSet=[...new Set(kV.map(k=>Math.round(k*10)/10))].sort((a,b)=>a-b);
+  const allR=[];for(const K of kSet){const roots=findRoots(charPoly(p,K));
+    for(let r of roots)if(Math.abs(r[1])<1e-6)r[1]=0;allR.push({K,roots});}
+  const nP=5,br=Array.from({length:nP},()=>[]);
+  if(allR.length>0){const f=allR[0].roots.slice();for(let i=0;i<nP;i++)br[i].push({K:allR[0].K,pole:f[i]||[0,0]});
+    for(let s=1;s<allR.length;s++){const prev=br.map(b=>b[b.length-1].pole);const curr=allR[s].roots.slice();const used=new Array(nP).fill(false);
+      for(let pass=0;pass<nP;pass++){let bI=-1,bJ=-1,bD=Infinity;
+        for(let i=0;i<nP;i++){if(used[i])continue;for(let j=0;j<curr.length;j++){if(!curr[j])continue;
+          const d=cAbs(cSub(prev[i],curr[j]));if(d<bD){bD=d;bI=i;bJ=j;}}}
+        if(bI>=0&&bJ>=0){br[bI].push({K:allR[s].K,pole:curr[bJ]});used[bI]=true;curr[bJ]=null;}}}}
+  return{kValues:kSet,branches:br,allRoots:allR};}
+function findKCrit(p){for(let i=1;i<=2000;i++){const K=5000*i/2000;const r=findRoots(charPoly(p,K));for(const v of r)if(v[0]>0.1)return K;}return 5000;}
+
+// ═══════════════════════════════════════════════
+//  BODE MARGINS
+// ═══════════════════════════════════════════════
+function evalOL(p,K,w){const jw=[0,w],num=cMul([K,0],cAdd(jw,[p.z,0]));
+  const jw2=cMul(jw,jw),del=cAdd(cMul([p.td,0],jw),[1,0]);
+  const lcl=cAdd(cMul([p.L1*p.L2*p.Cf,0],jw2),[p.L1+p.L2,0]);
+  return cDiv(num,cMul(cMul(jw2,del),lcl));}
+function margins(p,K){if(K<=0)return{gm:Infinity,gmF:0,pm:180,pmF:0};
+  let pmF=0,pm=180,gmF=0,gm=Infinity,pM=Infinity,pP=0;
+  for(let i=0;i<=2000;i++){const t=i/2000;const w=Math.pow(100000,t);
+    const g=evalOL(p,K,w);const m=cAbs(g);let ph=cArg(g)*180/Math.PI;while(ph>0)ph-=360;while(ph<-360)ph+=360;
+    if(i>0&&(pM-1)*(m-1)<=0){pmF=w;const gc=evalOL(p,K,w);let pg=cArg(gc)*180/Math.PI;while(pg>0)pg-=360;pm=180+pg;}
+    if(i>0){let pp=pP;while(pp>0)pp-=360;if((pp+180)*(ph+180)<=0&&m>1e-10){gmF=w;gm=-20*Math.log10(m);}}
+    pM=m;pP=cArg(g)*180/Math.PI;}return{gm,gmF,pm,pmF};}
+
+// ═══════════════════════════════════════════════
+//  STEP RESPONSE
+// ═══════════════════════════════════════════════
+function stepResp(p,K){const c=charPoly(p,K);const a5=c[0];
+  const c4=c[1]/a5,c3=c[2]/a5,c2=c[3]/a5,c1=c[4]/a5,c0=c[5]/a5;
+  const b1=K/a5,b0=K*p.z/a5;const roots=findRoots(c);let mF=100,mD=1;
+  for(const r of roots){mF=Math.max(mF,Math.abs(r[1]));if(r[0]<0)mD=Math.min(mD,-r[0]);}
+  const tE=Math.min(0.2,Math.max(0.005,6/Math.max(mD,1)));const dt=Math.min(tE/500,0.5/mF);const nS=Math.ceil(tE/dt);
+  let x=[0,0,0,0,0];const res=[{t:0,y:0}];
+  function dr(x,u){return[x[1],x[2],x[3],x[4],-c0*x[0]-c1*x[1]-c2*x[2]-c3*x[3]-c4*x[4]+u];}
+  for(let i=0;i<nS;i++){const k1=dr(x,1);const x2=x.map((v,j)=>v+dt/2*k1[j]);const k2=dr(x2,1);const x3=x.map((v,j)=>v+dt/2*k2[j]);
+    const k3=dr(x3,1);const x4=x.map((v,j)=>v+dt*k3[j]);const k4=dr(x4,1);x=x.map((v,j)=>v+dt/6*(k1[j]+2*k2[j]+2*k3[j]+k4[j]));
+    const y=b0*x[0]+b1*x[1];const t=(i+1)*dt;if(i%Math.max(1,Math.floor(nS/300))===0||i===nS-1)res.push({t,y});
+    if(Math.abs(y)>100){res.push({t,y:y>0?100:-100});break;}}return res;}
+function analyzeStep(r){if(r.length<2)return{rt:0,st:0,os:0,div:false};const f=r[r.length-1].y;const pk=Math.max(...r.map(v=>v.y));
+  const os=Math.abs(f)>0.01?Math.max(0,(pk-f)/f*100):0;let t10=0,t90=0;if(Math.abs(f)>0.001){for(const v of r){if(!t10&&v.y>=0.1*f)t10=v.t;if(!t90&&v.y>=0.9*f)t90=v.t;}}
+  let st=0;for(const v of r)if(Math.abs(f)>0.001&&Math.abs(v.y-f)>0.02*Math.abs(f))st=v.t;
+  const dv=r.length>10&&(Math.abs(f)>50||Math.abs(f)>2*Math.abs(r[Math.floor(r.length/2)].y));
+  return{rt:t90-t10,st,os,div:dv};}
+
+// ═══════════════════════════════════════════════
+//  STABILITY ASSESSMENT
+// ═══════════════════════════════════════════════
+function assessStab(poles,K,kC){
+  let hasRHP=false,zD=1,wD=0,dI=-1,dJ=-1;
+  for(let i=0;i<poles.length;i++){if(poles[i][0]>0.1)hasRHP=true;
+    const s=poles[i][0],w=poles[i][1],wn=Math.sqrt(s*s+w*w);if(wn<1)continue;const z=-s/wn;
+    if(z<zD){zD=z;wD=wn;dI=i;}}
+  if(dI>=0)for(let j=0;j<poles.length;j++){if(j!==dI&&Math.abs(poles[j][0]-poles[dI][0])<1&&Math.abs(poles[j][1]+poles[dI][1])<1){dJ=j;break;}}
+  let st,co;if(hasRHP||zD<0){st='UNSTABLE';co='#ff3232';}else if(zD<0.3){st='MARGINALLY STABLE';co='#FFB800';}else{st='STABLE';co='#00c850';}
+  return{st,co,zD:Math.max(0,zD),wD,dp:[dI,dJ],kMn:kC*0.05,kMx:kC*0.6,kOp:kC*0.3};}
+
+// ═══════════════════════════════════════════════
+//  3D MATRIX MATH (column-major for WebGPU)
+// ═══════════════════════════════════════════════
+function mat4Ident(){return new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);}
+function mat4Persp(fov,asp,near,far){const f=1/Math.tan(fov/2),d=near-far;
+  return new Float32Array([f/asp,0,0,0,0,f,0,0,0,0,(far+near)/d,-1,0,0,2*far*near/d,0]);}
+function mat4LookAt(eye,ctr,up){
+  const zx=eye[0]-ctr[0],zy=eye[1]-ctr[1],zz=eye[2]-ctr[2];
+  const zl=Math.sqrt(zx*zx+zy*zy+zz*zz)||1;const fz=[zx/zl,zy/zl,zz/zl];
+  let sx=up[1]*fz[2]-up[2]*fz[1],sy=up[2]*fz[0]-up[0]*fz[2],sz=up[0]*fz[1]-up[1]*fz[0];
+  const sl=Math.sqrt(sx*sx+sy*sy+sz*sz)||1;sx/=sl;sy/=sl;sz/=sl;
+  const ux=fz[1]*sz-fz[2]*sy,uy=fz[2]*sx-fz[0]*sz,uz=fz[0]*sy-fz[1]*sx;
+  return new Float32Array([sx,ux,fz[0],0,sy,uy,fz[1],0,sz,uz,fz[2],0,
+    -(sx*eye[0]+sy*eye[1]+sz*eye[2]),-(ux*eye[0]+uy*eye[1]+uz*eye[2]),-(fz[0]*eye[0]+fz[1]*eye[1]+fz[2]*eye[2]),1]);}
+function mat4Mul(a,b){const o=new Float32Array(16);for(let i=0;i<4;i++)for(let j=0;j<4;j++){
+  o[j*4+i]=a[i]*b[j*4]+a[4+i]*b[j*4+1]+a[8+i]*b[j*4+2]+a[12+i]*b[j*4+3];}return o;}
+function project(x,y,z,mvp,W,H){
+  const cx=mvp[0]*x+mvp[4]*y+mvp[8]*z+mvp[12],cy=mvp[1]*x+mvp[5]*y+mvp[9]*z+mvp[13];
+  const cw=mvp[3]*x+mvp[7]*y+mvp[11]*z+mvp[15];
+  if(Math.abs(cw)<1e-6)return null;
+  return[(cx/cw*0.5+0.5)*W,(0.5-cy/cw*0.5)*H];}
+
+// ═══════════════════════════════════════════════
+//  CAMERA & 3D STATE
+// ═══════════════════════════════════════════════
+let cam={theta:0.85,phi:-0.4,dist:3.8,target:[0,0,0]};
+let norm={sC:0,sS:1,wS:1,kS:5000}; // normalization
+
+function updateNorm(p){
+  const wr=wRes(p);norm.sS=Math.max(1/p.td*1.2,25000);
+  norm.wS=Math.max(wr*1.5,15000);norm.sC=-norm.sS*0.3;norm.kS=5000;}
+function toWorld(sigma,omega,K){
+  return[(sigma-norm.sC)/norm.sS,omega/norm.wS,K/norm.kS*2-1];}  // maps to ~[-1,1]³
+function getMVP(W,H){
+  const eye=[cam.dist*Math.sin(cam.theta)*Math.sin(cam.phi),cam.dist*Math.cos(cam.theta),cam.dist*Math.sin(cam.theta)*Math.cos(cam.phi)];
+  const view=mat4LookAt([eye[0]+cam.target[0],eye[1]+cam.target[1],eye[2]+cam.target[2]],cam.target,[0,1,0]);
+  const proj=mat4Persp(0.9,W/H,0.01,100);return mat4Mul(proj,view);}
+function proj3(sigma,omega,K,mvp,W,H){const[wx,wy,wz]=toWorld(sigma,omega,K);return project(wx,wy,wz,mvp,W,H);}
+
+// ═══════════════════════════════════════════════
+//  WEBGPU
+// ═══════════════════════════════════════════════
+let gpu={dev:null,ctx:null,pipe:null,fmt:null,uBuf:null,uBG:null,msaa:null,msaaV:null};
+const SHADER=`struct U{res:vec2f,time:f32,_p:f32}@group(0)@binding(0)var<uniform> u:U;
+struct Vi{@location(0) p:vec2f,@location(1) c:vec4f}struct Vo{@builtin(position) p:vec4f,@location(0) c:vec4f}
+@vertex fn vs(v:Vi)->Vo{var o:Vo;let n=(v.p/u.res)*2.0-vec2f(1.0);o.p=vec4f(n.x,-n.y,0.0,1.0);o.c=v.c;return o;}
+@fragment fn fs(v:Vo)->@location(0)vec4f{return v.c;}`;
+async function initGPU(){
+  if(!navigator.gpu){$('gpu-error').style.display='flex';return false;}
+  const ad=await navigator.gpu.requestAdapter();if(!ad){$('gpu-error').style.display='flex';return false;}
+  gpu.dev=await ad.requestDevice();const c=$('webgpu-canvas');gpu.ctx=c.getContext('webgpu');
+  gpu.fmt=navigator.gpu.getPreferredCanvasFormat();gpu.ctx.configure({device:gpu.dev,format:gpu.fmt,alphaMode:'premultiplied'});
+  const sm=gpu.dev.createShaderModule({code:SHADER});
+  gpu.pipe=gpu.dev.createRenderPipeline({layout:'auto',
+    vertex:{module:sm,entryPoint:'vs',buffers:[{arrayStride:24,attributes:[{shaderLocation:0,offset:0,format:'float32x2'},{shaderLocation:1,offset:8,format:'float32x4'}]}]},
+    fragment:{module:sm,entryPoint:'fs',targets:[{format:gpu.fmt,blend:{color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha',operation:'add'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha',operation:'add'}}}]},
+    primitive:{topology:'triangle-list'},multisample:{count:4}});
+  gpu.uBuf=gpu.dev.createBuffer({size:16,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+  gpu.uBG=gpu.dev.createBindGroup({layout:gpu.pipe.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:gpu.uBuf}}]});
+  mkMSAA();return true;}
+function mkMSAA(){const c=$('webgpu-canvas');if(gpu.msaa)gpu.msaa.destroy();
+  gpu.msaa=gpu.dev.createTexture({size:[c.width,c.height],format:gpu.fmt,sampleCount:4,usage:GPUTextureUsage.RENDER_ATTACHMENT});gpu.msaaV=gpu.msaa.createView();}
+
+// ═══════════════════════════════════════════════
+//  GEOMETRY BUILDERS (2D screen space)
+// ═══════════════════════════════════════════════
+let V=[];
+function pV(x,y,r,g,b,a){V.push(x,y,r,g,b,a);}
+function pL(x0,y0,x1,y1,r,g,b,a,w){const dx=x1-x0,dy=y1-y0,l=Math.sqrt(dx*dx+dy*dy);if(l<0.3)return;
+  const nx=-dy/l*w/2,ny=dx/l*w/2;pV(x0-nx,y0-ny,r,g,b,a);pV(x0+nx,y0+ny,r,g,b,a);pV(x1+nx,y1+ny,r,g,b,a);
+  pV(x0-nx,y0-ny,r,g,b,a);pV(x1+nx,y1+ny,r,g,b,a);pV(x1-nx,y1-ny,r,g,b,a);}
+function pDash(x0,y0,x1,y1,r,g,b,a,w,dl,gl){const dx=x1-x0,dy=y1-y0,l=Math.sqrt(dx*dx+dy*dy);if(l<0.3)return;
+  const ux=dx/l,uy=dy/l;let p=0,on=true;while(p<l){if(on){const e=Math.min(p+dl,l);pL(x0+ux*p,y0+uy*p,x0+ux*e,y0+uy*e,r,g,b,a,w);p=e;}else p+=gl;on=!on;}}
+function pCirc(cx,cy,rd,r,g,b,a,sg){sg=sg||16;for(let i=0;i<sg;i++){const a0=2*Math.PI*i/sg,a1=2*Math.PI*(i+1)/sg;
+  pV(cx,cy,r,g,b,a);pV(cx+rd*Math.cos(a0),cy+rd*Math.sin(a0),r,g,b,a);pV(cx+rd*Math.cos(a1),cy+rd*Math.sin(a1),r,g,b,a);}}
+function pRing(cx,cy,rd,r,g,b,a,w,sg){sg=sg||20;for(let i=0;i<sg;i++){const a0=2*Math.PI*i/sg,a1=2*Math.PI*(i+1)/sg;
+  pL(cx+rd*Math.cos(a0),cy+rd*Math.sin(a0),cx+rd*Math.cos(a1),cy+rd*Math.sin(a1),r,g,b,a,w);}}
+function pCross(cx,cy,sz,r,g,b,a,w){pL(cx-sz,cy-sz,cx+sz,cy+sz,r,g,b,a,w);pL(cx+sz,cy-sz,cx-sz,cy+sz,r,g,b,a,w);}
+function pDia(cx,cy,sz,r,g,b,a){pV(cx,cy-sz,r,g,b,a);pV(cx+sz,cy,r,g,b,a);pV(cx,cy+sz,r,g,b,a);
+  pV(cx,cy-sz,r,g,b,a);pV(cx,cy+sz,r,g,b,a);pV(cx-sz,cy,r,g,b,a);}
+function pTri(x0,y0,x1,y1,x2,y2,r,g,b,a){pV(x0,y0,r,g,b,a);pV(x1,y1,r,g,b,a);pV(x2,y2,r,g,b,a);}
+// Project a 3D line to 2D screen and draw it
+function pL3(s0,w0,k0,s1,w1,k1,mvp,W,H,r,g,b,a,lw){
+  const p0=proj3(s0,w0,k0,mvp,W,H),p1=proj3(s1,w1,k1,mvp,W,H);
+  if(!p0||!p1)return;pL(p0[0],p0[1],p1[0],p1[1],r,g,b,a,lw);}
+function pD3(s0,w0,k0,s1,w1,k1,mvp,W,H,r,g,b,a,lw,dl,gl){
+  const p0=proj3(s0,w0,k0,mvp,W,H),p1=proj3(s1,w1,k1,mvp,W,H);
+  if(!p0||!p1)return;pDash(p0[0],p0[1],p1[0],p1[1],r,g,b,a,lw,dl,gl);}
+
+// ═══════════════════════════════════════════════
+//  PARTICLES (flow along branches)
+// ═══════════════════════════════════════════════
+let particles=[];
+function initParticles(){
+  particles=[];if(!LC)return;
+  for(const br of LC.branches){const n=Math.min(8,Math.floor(br.length/30));
+    for(let i=0;i<n;i++)particles.push({branchIdx:LC.branches.indexOf(br),pos:Math.random(),speed:0.002+Math.random()*0.003});}}
+
+// ═══════════════════════════════════════════════
+//  STARFIELD
+// ═══════════════════════════════════════════════
+let stars=[];
+function initStars(){stars=[];for(let i=0;i<150;i++)stars.push({x:Math.random(),y:Math.random(),z:Math.random()*0.7+0.2,b:Math.random()*0.4+0.08,sp:Math.random()*0.00008+0.00001});}
+
+// ═══════════════════════════════════════════════
+//  BUILD 3D SCENE
+// ═══════════════════════════════════════════════
+function buildScene(){
+  V=[];const c=$('webgpu-canvas');const W=c.width,H=c.height;
+  const p=getParams();const K=p.K;const dpr=devicePixelRatio;
+  const now=performance.now();const mvp=getMVP(W,H);
+  const wr=wRes(p);
+
+  // ── Starfield ──
+  for(const s of stars){s.x+=s.sp;if(s.x>1)s.x-=1;
+    const tw=0.7+0.3*Math.sin(now*0.003*s.sp*1000+s.y*100);
+    pCirc(s.x*W,s.y*H,s.z*1.3*dpr,0.7,0.78,1,s.b*tw,6);}
+
+  // ── 3D Grid base plane (K=0, σ-ω plane) ──
+  const sMin=-norm.sS+norm.sC,sMax=norm.sS*0.3+norm.sC;
+  const wMax=norm.wS;
+  // Grid lines on base plane
+  const gS=niceStep(norm.sS/4);
+  for(let v=Math.ceil(sMin/gS)*gS;v<=sMax;v+=gS){
+    pL3(v,-wMax,0,v,wMax,0,mvp,W,H,1,1,1,0.04,0.5*dpr);} // vertical (const σ)
+  const gW=niceStep(wMax/3);
+  for(let v=-Math.ceil(wMax/gW)*gW;v<=wMax;v+=gW){
+    pL3(sMin,v,0,sMax,v,0,mvp,W,H,1,1,1,0.04,0.5*dpr);} // horizontal (const ω)
+
+  // ── 3D Axes ──
+  // σ axis (real)
+  pL3(sMin,0,0,sMax,0,0,mvp,W,H,0.9,0.9,0.9,0.4,1.8*dpr);
+  // jω axis (imaginary)
+  pL3(0,-wMax,0,0,wMax,0,mvp,W,H,0.9,0.9,0.9,0.4,1.8*dpr);
+  // K axis (gain — vertical)
+  pL3(0,0,0,0,0,5000,mvp,W,H,1,0.72,0,0.5,1.8*dpr);
+  // K axis ticks
+  for(let k=1000;k<=5000;k+=1000){
+    pL3(-norm.sS*0.02,0,k,norm.sS*0.02,0,k,mvp,W,H,1,0.72,0,0.3,1*dpr);}
+
+  // ── MATLAB sgrid on base plane (K=0) ──
+  const showD=$('chk-damping').checked,showW=$('chk-wn').checked,showA=$('chk-asymptotes').checked;
+
+  // Damping ratio ζ lines (radial from origin into LHP)
+  if(showD){for(const zeta of[0.1,0.2,0.3,0.5,0.7,0.9]){
+    const th=Math.acos(zeta);const len=norm.sS*2;const al=zeta===0.3||zeta===0.7?0.18:0.09;
+    pD3(0,0,0,-len*Math.cos(th),len*Math.sin(th),0,mvp,W,H,0.45,0.6,0.45,al,0.8*dpr,4*dpr,3*dpr);
+    pD3(0,0,0,-len*Math.cos(th),-len*Math.sin(th),0,mvp,W,H,0.45,0.6,0.45,al,0.8*dpr,4*dpr,3*dpr);}}
+
+  // Natural frequency ωₙ semicircles (LHP arcs on base plane)
+  if(showW){const wnS=niceStep(wr/3);
+    for(let wn=wnS;wn<=wMax;wn+=wnS){const isRes=Math.abs(wn-wr)<wnS*0.3;
+      const al=isRes?0.2:0.07;const cr=isRes?0.85:0.45,cg=isRes?0.4:0.55,cb=isRes?0.4:0.45;
+      const seg=36;for(let i=0;i<seg;i++){const a0=Math.PI/2+Math.PI*i/seg,a1=Math.PI/2+Math.PI*(i+1)/seg;
+        pL3(wn*Math.cos(a0),wn*Math.sin(a0),0,wn*Math.cos(a1),wn*Math.sin(a1),0,mvp,W,H,cr,cg,cb,al,isRes?1.2*dpr:0.7*dpr);}}}
+
+  // Asymptotes (from centroid, on base plane, extending upward in K)
+  if(showA&&LC){const poles=getOLPoles(p),zeros=getOLZeros(p);
+    const sP=poles.reduce((s,p)=>s+p[0],0),sZ=zeros.reduce((s,z)=>s+z[0],0);
+    const nM=poles.length-zeros.length;const cent=(sP-sZ)/nM;
+    for(let k=0;k<nM;k++){const ang=(2*k+1)*Math.PI/nM;const len=norm.sS*3;
+      pD3(cent,0,0,cent+len*Math.cos(ang),len*Math.sin(ang),0,mvp,W,H,0.7,0.7,0.7,0.12,0.8*dpr,8*dpr,5*dpr);}}
+
+  // ── 3D Root Locus branches ──
+  if(LC){for(const br of LC.branches){
+    for(let i=1;i<br.length;i++){
+      const{K:k0,pole:p0}=br[i-1],{K:k1,pole:p1}=br[i];
+      const inRHP=p1[0]>0;
+      const cr=inRHP?0.94:0.39,cg=inRHP?0.33:0.71,cb=inRHP?0.31:0.96;
+      // Glow
+      pL3(p0[0],p0[1],k0,p1[0],p1[1],k1,mvp,W,H,cr,cg,cb,0.12,5*dpr);
+      // Main line
+      pL3(p0[0],p0[1],k0,p1[0],p1[1],k1,mvp,W,H,cr,cg,cb,0.9,2*dpr);}}}
+
+  // ── K-plane slice (semi-transparent plane at current K) ──
+  if($('chk-kplane').checked){
+    const corners=[[sMin,-wMax,K],[sMax,-wMax,K],[sMax,wMax,K],[sMin,wMax,K]];
+    const sc=corners.map(c=>proj3(c[0],c[1],c[2],mvp,W,H)).filter(Boolean);
+    if(sc.length===4){
+      const al=0.06;pTri(sc[0][0],sc[0][1],sc[1][0],sc[1][1],sc[2][0],sc[2][1],0.4,0.7,1,al);
+      pTri(sc[0][0],sc[0][1],sc[2][0],sc[2][1],sc[3][0],sc[3][1],0.4,0.7,1,al);
+      // K-plane border
+      for(let i=0;i<4;i++){const j=(i+1)%4;pL(sc[i][0],sc[i][1],sc[j][0],sc[j][1],0.4,0.7,1,0.25,1*dpr);}}}
+
+  // ── Open-loop poles × at K=0 ──
+  const olP=getOLPoles(p);
+  for(const pole of olP){const pp=proj3(pole[0],pole[1],0,mvp,W,H);if(pp)pCross(pp[0],pp[1],7*dpr,0.39,0.71,0.96,0.9,2.5*dpr);}
+  // ── Open-loop zeros ○ at K=0 ──
+  const olZ=getOLZeros(p);
+  for(const z of olZ){const pp=proj3(z[0],z[1],0,mvp,W,H);if(pp)pRing(pp[0],pp[1],7*dpr,0.39,0.71,0.96,0.9,2.5*dpr,16);}
+
+  // ── Operating point markers at current K (magenta diamonds) ──
+  if(LC){const curP=findRoots(charPoly(p,K));
+    for(const pole of curP){if(Math.abs(pole[1])<1e-6)pole[1]=0;
+      const pp=proj3(pole[0],pole[1],K,mvp,W,H);if(!pp)continue;
+      const inR=pole[0]>0;const mr=inR?0.94:0.88,mg=inR?0.33:0.25,mb=inR?0.31:0.98;
+      pCirc(pp[0],pp[1],14*dpr,mr,mg,mb,0.06,10);
+      pCirc(pp[0],pp[1],8*dpr,mr,mg,mb,0.12,10);
+      pDia(pp[0],pp[1],6*dpr,mr,mg,mb,0.95);
+      // Drop line from operating point down to base plane
+      const bp=proj3(pole[0],pole[1],0,mvp,W,H);
+      if(bp)pDash(pp[0],pp[1],bp[0],bp[1],mr,mg,mb,0.2,0.7*dpr,3*dpr,3*dpr);}}
+
+  // ── Flow particles along branches ──
+  if($('chk-particles').checked&&LC){
+    for(const pt of particles){
+      pt.pos+=pt.speed;if(pt.pos>=1)pt.pos-=1;
+      const br=LC.branches[pt.branchIdx];if(!br||br.length<2)continue;
+      const idx=Math.floor(pt.pos*(br.length-1));const frac=pt.pos*(br.length-1)-idx;
+      if(idx>=br.length-1)continue;
+      const{K:k0,pole:p0}=br[idx],{K:k1,pole:p1}=br[Math.min(idx+1,br.length-1)];
+      const s=p0[0]+(p1[0]-p0[0])*frac,w=p0[1]+(p1[1]-p0[1])*frac,k=k0+(k1-k0)*frac;
+      const pp=proj3(s,w,k,mvp,W,H);if(!pp)continue;
+      pCirc(pp[0],pp[1],3*dpr,1,1,1,0.7,6);
+      pCirc(pp[0],pp[1],6*dpr,1,1,1,0.15,6);}}
+
+  return new Float32Array(V);}
+
+function niceStep(a){const m=Math.pow(10,Math.floor(Math.log10(Math.abs(a)||1)));const r=a/m;
+  if(r<1.5)return m;if(r<3.5)return 2*m;if(r<7.5)return 5*m;return 10*m;}
+
+// ═══════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════
+function render(){
+  if(!gpu.dev)return;const c=$('webgpu-canvas');const W=c.width,H=c.height;
+  gpu.dev.queue.writeBuffer(gpu.uBuf,0,new Float32Array([W,H,performance.now()/1000,0]));
+  const vd=buildScene();if(vd.length===0)return;
+  const vb=gpu.dev.createBuffer({size:vd.byteLength,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST});
+  gpu.dev.queue.writeBuffer(vb,0,vd);
+  const enc=gpu.dev.createCommandEncoder();
+  const pass=enc.beginRenderPass({colorAttachments:[{view:gpu.msaaV,resolveTarget:gpu.ctx.getCurrentTexture().createView(),
+    loadOp:'clear',clearValue:{r:0.03,g:0.03,b:0.05,a:1},storeOp:'store'}]});
+  pass.setPipeline(gpu.pipe);pass.setBindGroup(0,gpu.uBG);pass.setVertexBuffer(0,vb);pass.draw(vd.length/6);pass.end();
+  gpu.dev.queue.submit([enc.finish()]);vb.destroy();}
+
+// ═══════════════════════════════════════════════
+//  TEXT OVERLAY
+// ═══════════════════════════════════════════════
+function drawText(){
+  const c=$('text-canvas');const ctx=c.getContext('2d');const dpr=devicePixelRatio;
+  ctx.clearRect(0,0,c.width,c.height);const W=c.width,H=c.height;
+  const p=getParams();const mvp=getMVP(W,H);const wr=wRes(p);
+
+  ctx.font=`${10*dpr}px Consolas,monospace`;
+
+  // Axis labels at endpoints
+  const sEnd=proj3(norm.sS*0.3+norm.sC,0,0,mvp,W,H);
+  if(sEnd){ctx.fillStyle='rgba(255,255,255,0.5)';ctx.textAlign='center';ctx.fillText('σ (Real)',sEnd[0],sEnd[1]-10*dpr);}
+  const wEnd=proj3(0,norm.wS,0,mvp,W,H);
+  if(wEnd){ctx.fillStyle='rgba(255,255,255,0.5)';ctx.textAlign='center';ctx.fillText('jω (Imag)',wEnd[0],wEnd[1]-10*dpr);}
+  const kEnd=proj3(0,0,5000,mvp,W,H);
+  if(kEnd){ctx.fillStyle='rgba(255,184,0,0.6)';ctx.textAlign='center';ctx.fillText('K (Gain)',kEnd[0]+15*dpr,kEnd[1]);}
+
+  // K axis tick labels
+  ctx.fillStyle='rgba(255,184,0,0.4)';ctx.font=`${8*dpr}px Consolas,monospace`;ctx.textAlign='left';
+  for(let k=1000;k<=5000;k+=1000){const pp=proj3(0,0,k,mvp,W,H);if(pp)ctx.fillText(k.toString(),pp[0]+8*dpr,pp[1]+3*dpr);}
+
+  // Current K label
+  const K=p.K;const kPt=proj3(0,0,K,mvp,W,H);
+  if(kPt){ctx.fillStyle='rgba(255,184,0,0.8)';ctx.font=`bold ${11*dpr}px Consolas,monospace`;
+    ctx.fillText(`K=${Math.round(K)}`,kPt[0]+10*dpr,kPt[1]);}
+
+  // σ axis ticks
+  ctx.fillStyle='rgba(255,255,255,0.3)';ctx.font=`${8*dpr}px Consolas,monospace`;ctx.textAlign='center';
+  const gS=niceStep(norm.sS/4);
+  const sMin=-norm.sS+norm.sC;
+  for(let v=Math.ceil(sMin/gS)*gS;v<=norm.sS*0.3+norm.sC;v+=gS){
+    if(Math.abs(v)<gS*0.1)continue;
+    const pp=proj3(v,0,0,mvp,W,H);if(pp)ctx.fillText(fmtAx(v),pp[0],pp[1]+12*dpr);}
+
+  // jω axis ticks
+  const gW=niceStep(norm.wS/3);
+  for(let v=-Math.ceil(norm.wS/gW)*gW;v<=norm.wS;v+=gW){
+    if(Math.abs(v)<gW*0.1)continue;
+    const pp=proj3(0,v,0,mvp,W,H);if(pp){ctx.textAlign='right';ctx.fillText('j'+fmtAx(v),pp[0]-6*dpr,pp[1]+3*dpr);}}
+
+  // ζ labels on base plane
+  if($('chk-damping').checked){ctx.fillStyle='rgba(100,170,100,0.35)';ctx.font=`${8*dpr}px sans-serif`;ctx.textAlign='left';
+    for(const z of[0.3,0.5,0.7]){const th=Math.acos(z);const r=norm.sS*0.4;
+      const pp=proj3(-r*Math.cos(th),r*Math.sin(th),0,mvp,W,H);if(pp)ctx.fillText(`ζ=${z}`,pp[0]+3*dpr,pp[1]-3*dpr);}}
+
+  // ωₙ labels
+  if($('chk-wn').checked){ctx.fillStyle='rgba(150,120,150,0.3)';ctx.font=`${7*dpr}px sans-serif`;ctx.textAlign='left';
+    const wnS=niceStep(wr/3);for(let wn=wnS;wn<=norm.wS;wn+=wnS){
+      const pp=proj3(-wn*0.1,wn*0.99,0,mvp,W,H);if(pp)ctx.fillText(`${Math.round(wn)}`,pp[0]+2*dpr,pp[1]);}}
+}
+
+function fmtAx(v){const a=Math.abs(v);if(a>=1000)return(v/1000).toFixed(a>=10000?0:1)+'k';if(a>=1)return Math.round(v)+'';return v.toFixed(1);}
+
+// ═══════════════════════════════════════════════
+//  STEP RESPONSE INSET
+// ═══════════════════════════════════════════════
+function drawStep(){
+  const cv=$('step-response-canvas');const dpr=devicePixelRatio;cv.width=300*dpr;cv.height=200*dpr;
+  const ctx=cv.getContext('2d');const w=cv.width,h=cv.height;const p=getParams();
+  ctx.fillStyle='rgba(10,10,18,0.95)';ctx.fillRect(0,0,w,h);
+  const r=stepResp(p,p.K);const an=analyzeStep(r);
+  const ml=40*dpr,mt=22*dpr,pw=w-ml-8*dpr,ph=h-mt-25*dpr;
+  let yMn=0,yMx=1;for(const v of r){yMn=Math.min(yMn,v.y);yMx=Math.max(yMx,v.y);}yMx=Math.max(yMx,1.2);
+  const tM=r.length>0?r[r.length-1].t:0.01;const tX=t=>ml+(t/tM)*pw,yY=y=>mt+(1-(y-yMn)/(yMx-yMn))*ph;
+  ctx.strokeStyle='rgba(255,255,255,0.06)';ctx.lineWidth=dpr*0.5;
+  for(let i=0;i<=4;i++){const y=mt+ph*i/4;ctx.beginPath();ctx.moveTo(ml,y);ctx.lineTo(ml+pw,y);ctx.stroke();}
+  ctx.setLineDash([3*dpr,3*dpr]);ctx.strokeStyle='rgba(255,255,255,0.2)';ctx.lineWidth=dpr;
+  const ry=yY(1);if(ry>mt&&ry<mt+ph){ctx.beginPath();ctx.moveTo(ml,ry);ctx.lineTo(ml+pw,ry);ctx.stroke();}ctx.setLineDash([]);
+  const cc=an.div?'#ff3232':(an.os>30?'#FFB800':'#00e060');
+  ctx.strokeStyle=cc;ctx.lineWidth=2*dpr;ctx.lineJoin='round';ctx.beginPath();
+  for(let i=0;i<r.length;i++){const x=tX(r[i].t),y=yY(r[i].y);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,0.3)';ctx.lineWidth=dpr;ctx.beginPath();ctx.moveTo(ml,mt);ctx.lineTo(ml,mt+ph);ctx.lineTo(ml+pw,mt+ph);ctx.stroke();
+  ctx.fillStyle='rgba(255,255,255,0.4)';ctx.font=`${8*dpr}px Consolas,monospace`;ctx.textAlign='center';
+  ctx.fillText('Step Response',w/2,13*dpr);ctx.fillText(`${(tM*1000).toFixed(1)}ms`,ml+pw,mt+ph+15*dpr);
+  ctx.textAlign='left';ctx.font=`${7*dpr}px sans-serif`;let ay=mt;
+  if(an.rt>0)ctx.fillText(`Rise: ${(an.rt*1000).toFixed(1)}ms`,ml+pw-70*dpr,ay+=11*dpr);
+  ctx.fillText(`OS: ${an.os.toFixed(1)}%`,ml+pw-70*dpr,ay+=11*dpr);}
+
+// ═══════════════════════════════════════════════
+//  DYNAMIC TEXT PANELS
+// ═══════════════════════════════════════════════
+function updateText(){
+  const p=getParams();const K=p.K;const wr=wRes(p);const fr=wr/(2*Math.PI);
+  const kC=findKCrit(p);const poles=findRoots(charPoly(p,K));
+  const s=assessStab(poles,K,kC);const m=margins(p,K);
+
+  const kL=kC*0.1,kM=kC*0.3,kH=kC*0.8;
+  let pe=`This 3D diagram shows root locus branches as 3D curves — the vertical axis is gain K.\n\nAs K increases from 0 (base plane) upward, the closed-loop poles trace paths through the σ-jω-K space. The magenta diamonds show current operating points at K=${Math.round(K)}.\n\n`;
+  if(K<kL)pe+=`▸ LOW GAIN — Stable but sluggish. Poles near the base plane.`;
+  else if(K<kH)pe+=`▸ MODERATE GAIN — ${s.zD>0.3?'Good':'Low'} damping (ζ≈${s.zD.toFixed(2)}). ${s.zD>0.5?'Well-tuned response.':'Overshoots but settles.'}`;
+  else pe+=`▸ HIGH GAIN — ${s.st==='UNSTABLE'?'UNSTABLE! Poles crossed into RHP (σ>0).':'Approaching instability.'}`;
+  pe+=`\n\n▸ RESONANCE: LCL filter at ${Math.round(fr)} Hz. The branches near ±j${Math.round(wr)} show resonance behavior.\n\n▸ OPTIMAL: K = ${Math.round(s.kMn)} to ${Math.round(s.kMx)}.`;
+  $('pe-text').textContent=pe;
+
+  const olP=getOLPoles(p),olZ=getOLZeros(p);
+  const cent=(olP.reduce((a,p)=>a+p[0],0)-olZ.reduce((a,z)=>a+z[0],0))/(olP.length-olZ.length);
+  let te=`G_OL(s) = K(s+${p.z}) / [s²(${(p.td*1e6).toFixed(0)}µs·s+1)(LCL)]\n\nPoles: 0(×2), ${Math.round(-1/p.td)}, ±j${Math.round(wr)} | Zero: ${-p.z}\nAsymptotes: 4 at 45°/135°/225°/315°, centroid σ=${Math.round(cent)}\n\nK=${Math.round(K)}:`;
+  for(let i=0;i<poles.length;i++){const re=poles[i][0],im=poles[i][1];const isDom=i===s.dp[0]||i===s.dp[1];
+    te+=`\n ${isDom?'★':' '} ${re>=0?'+':''}${re.toFixed(1)} ${im>=0?'+':'-'}j${Math.abs(im).toFixed(1)}${isDom?' (dom)':''}`;}
+  te+=`\nζ=${s.zD.toFixed(3)} ωn=${Math.round(s.wD)} | GM=${isFinite(m.gm)?m.gm.toFixed(1):'∞'}dB PM=${m.pm.toFixed(1)}°\nK_crit≈${Math.round(kC)} | Optimal: [${Math.round(s.kMn)}, ${Math.round(s.kMx)}]`;
+  $('te-text').textContent=te;
+
+  const badge=$('stability-badge');badge.textContent=s.st;
+  badge.className=s.st==='STABLE'?'badge-s':s.st==='UNSTABLE'?'badge-u':'badge-m';
+  $('cv-zeta').textContent=s.zD.toFixed(3);$('cv-wn').textContent=Math.round(s.wD)+' r/s';
+  $('cv-gm').textContent=(isFinite(m.gm)?m.gm.toFixed(1):'∞')+'dB';$('cv-pm').textContent=m.pm.toFixed(1)+'°';
+  $('cv-wres').textContent=Math.round(wr)+' r/s';$('cv-kcrit').textContent=Math.round(kC);
+  let ph='<b>CL poles:</b><br>';for(let i=0;i<poles.length;i++){const re=poles[i][0],im=poles[i][1];
+    ph+=`<span class="${i===s.dp[0]||i===s.dp[1]?'d':''}">${re>=0?'+':''}${re.toFixed(0)}${im>=0?'+':''}j${im.toFixed(0)}</span><br>`;}
+  $('pole-list').innerHTML=ph;}
+
+// ═══════════════════════════════════════════════
+//  INTERACTION
+// ═══════════════════════════════════════════════
+let dragging=false,orbiting=false,dragStart=null;
+
+function setupInput(){
+  const cv=$('webgpu-canvas');const tt=$('tooltip');
+  cv.addEventListener('mousemove',e=>{
+    const rect=cv.getBoundingClientRect();
+    if(orbiting){
+      const dx=(e.clientX-dragStart.x)*0.008,dy=(e.clientY-dragStart.y)*0.008;
+      cam.phi+=dx;cam.theta=Math.max(0.1,Math.min(Math.PI-0.1,cam.theta-dy));
+      dragStart={x:e.clientX,y:e.clientY};return;}
+    if(dragging){
+      cam.target[0]+=(e.clientX-dragStart.x)*-0.003;cam.target[1]+=(e.clientY-dragStart.y)*0.003;
+      dragStart={x:e.clientX,y:e.clientY};return;}
+    // Tooltip: find nearest branch point
+    if(!LC)return;const px=(e.clientX-rect.left)*devicePixelRatio,py=(e.clientY-rect.top)*devicePixelRatio;
+    const mvp=getMVP(cv.width,cv.height);let bD=Infinity,bPt=null;
+    for(const br of LC.branches)for(const pt of br){
+      const pp=proj3(pt.pole[0],pt.pole[1],pt.K,mvp,cv.width,cv.height);if(!pp)continue;
+      const d=Math.sqrt((pp[0]-px)**2+(pp[1]-py)**2);if(d<bD){bD=d;bPt=pt;}}
+    if(bPt&&bD<25*devicePixelRatio){const s=bPt.pole[0],w=bPt.pole[1],wn=Math.sqrt(s*s+w*w),z=wn>1?-s/wn:1;
+      tt.style.display='block';tt.style.left=(e.clientX+12)+'px';tt.style.top=(e.clientY-8)+'px';
+      tt.innerHTML=`K=${bPt.K.toFixed(0)} | s=${s.toFixed(0)}${w>=0?'+':''}j${w.toFixed(0)}<br>ζ=${z.toFixed(3)} ωn=${wn.toFixed(0)}`;}
+    else tt.style.display='none';});
+
+  cv.addEventListener('mousedown',e=>{if(e.shiftKey){orbiting=true;cv.style.cursor='grab';}else{dragging=true;cv.style.cursor='grabbing';}
+    dragStart={x:e.clientX,y:e.clientY};});
+  cv.addEventListener('mouseup',e=>{
+    if(!orbiting&&!dragging)return;const moved=dragStart&&(Math.abs(e.clientX-dragStart.x)>3||Math.abs(e.clientY-dragStart.y)>3);
+    if(!moved&&LC){// Click → set K
+      const rect=cv.getBoundingClientRect();const px=(e.clientX-rect.left)*devicePixelRatio,py=(e.clientY-rect.top)*devicePixelRatio;
+      const mvp=getMVP(cv.width,cv.height);let bD=Infinity,bK=0;
+      for(const br of LC.branches)for(const pt of br){
+        const pp=proj3(pt.pole[0],pt.pole[1],pt.K,mvp,cv.width,cv.height);if(!pp)continue;
+        const d=Math.sqrt((pp[0]-px)**2+(pp[1]-py)**2);if(d<bD){bD=d;bK=pt.K;}}
+      if(bD<40*devicePixelRatio)setK(bK);}
+    orbiting=false;dragging=false;cv.style.cursor='crosshair';});
+  cv.addEventListener('mouseleave',()=>{orbiting=false;dragging=false;cv.style.cursor='crosshair';tt.style.display='none';});
+  cv.addEventListener('wheel',e=>{e.preventDefault();cam.dist=Math.max(1,Math.min(12,cam.dist*(e.deltaY>0?1.08:0.92)));
+    $('zoom-slider').value=(3.8/cam.dist).toFixed(1);$('zoom-val').textContent=(3.8/cam.dist).toFixed(1)+'×';});}
+
+// ═══════════════════════════════════════════════
+//  UI
+// ═══════════════════════════════════════════════
+let guidanceTimer=null;
+function showGuidance(title,body){
+  const t=$('guidance-toast');t.querySelector('.gt-title').textContent=title;
+  t.querySelector('.gt-body').textContent=body;t.classList.add('show');
+  clearTimeout(guidanceTimer);guidanceTimer=setTimeout(()=>t.classList.remove('show'),5000);}
+function paramGuidance(id){
+  const p=getParams();const wr=wRes(p);const fr=(wr/(2*Math.PI)).toFixed(0);
+  const guides={
+    'k-slider':['Gain K — Controller Aggressiveness',
+      `K controls how hard the controller pushes to correct errors. Low K → slow but stable. High K → fast but risks oscillation. Current resonance at ${fr} Hz means K above ~${Math.round(findKCrit(p))} will drive poles into RHP (unstable). Sweet spot: enough bandwidth without exciting the LCL resonance.`],
+    'l1-slider':['L1 — Inverter-Side Inductance',
+      `L1 filters high-frequency PWM ripple from the inverter. Larger L1 → better filtering but slower current response and higher voltage drop. It also shifts the LCL resonance: current ωr = ${Math.round(wr)} rad/s. Increasing L1 lowers resonance frequency — watch for interaction with control bandwidth.`],
+    'l2-slider':['L2 — Grid-Side Inductance',
+      `L2 attenuates switching harmonics before they reach the grid. Larger L2 → cleaner grid current but moves resonance lower. With L1, they form the LCL filter. Rule of thumb: L2 ≈ 0.2-0.5 × L1 balances filtering vs. resonance damping.`],
+    'cf-slider':['Cf — Filter Capacitance',
+      `Cf is the shunt element of the LCL filter. Larger Cf → lower resonance frequency and better harmonic attenuation, but draws reactive power and can make active damping harder. Current resonance: ${fr} Hz. Keep Cf small enough that ωr stays above 3× the control bandwidth.`],
+    'td-slider':['τd — Digital Control Delay',
+      `This models the combined computational + PWM delay (typically 1-1.5× switching period). Delay adds phase lag — effectively a right-half-plane pole at s = -1/τd = ${Math.round(-1/p.td)}. More delay shrinks the stable gain range and can destabilize active damping. Minimize with faster sampling or predictive compensation.`],
+    'z-slider':['z — PI Zero Location',
+      `The PI controller zero at s = -z cancels a system pole. If z matches the plant's dominant pole, it simplifies the root locus. Too low → sluggish (integral action dominates). Too high → aggressive (proportional dominates). The zero pulls branches leftward, improving stability margin.`],
+    'zoom-slider':['Zoom — View Scale',`Zoom into the root locus to see branch detail near the origin, or zoom out to see the full picture including high-frequency resonance poles.`]
+  };return guides[id]||null;}
+
+let animId=null;
+function setK(K){K=Math.max(0,Math.min(5000,Math.round(K)));$('k-slider').value=K;$('k-num').value=K;$('k-val').textContent=K;onK();}
+function onK(){drawStep();updateText();}
+function onParam(){const p=getParams();$('l1-val').textContent=(p.L1*1000).toFixed(1);$('l2-val').textContent=(p.L2*1000).toFixed(1);
+  $('cf-val').textContent=(p.Cf*1e6).toFixed(0);$('td-val').textContent=(p.td*1e6).toFixed(0);$('z-val').textContent=p.z;
+  updateNorm(p);LC=computeLocus(p,5000,500);initParticles();onK();}
+function setupUI(){
+  $('k-slider').addEventListener('input',()=>{$('k-num').value=$('k-slider').value;$('k-val').textContent=$('k-slider').value;onK();const g=paramGuidance('k-slider');if(g)showGuidance(g[0],g[1]);});
+  $('k-num').addEventListener('change',()=>{const v=Math.max(0,Math.min(5000,+$('k-num').value||0));$('k-slider').value=v;$('k-num').value=v;$('k-val').textContent=v;onK();});
+  for(const id of['l1-slider','l2-slider','cf-slider','td-slider','z-slider']){$(id).addEventListener('input',()=>{onParam();const g=paramGuidance(id);if(g)showGuidance(g[0],g[1]);});}
+  $('zoom-slider').addEventListener('input',e=>{cam.dist=3.8/parseFloat(e.target.value);$('zoom-val').textContent=parseFloat(e.target.value).toFixed(1)+'×';const g=paramGuidance('zoom-slider');if(g)showGuidance(g[0],g[1]);});
+  $('chk-animate').addEventListener('change',e=>{if(e.target.checked){let k=0;function t(){k+=20;if(k>5000)k=0;setK(k);animId=requestAnimationFrame(t);}animId=requestAnimationFrame(t);}
+    else{if(animId)cancelAnimationFrame(animId);animId=null;}});}
+function togglePanel(id){$(id+'-body').classList.toggle('hd');$(id+'-toggle').classList.toggle('cl');}
+
+// ═══════════════════════════════════════════════
+//  MAIN LOOP
+// ═══════════════════════════════════════════════
+function loop(){render();drawText();requestAnimationFrame(loop);}
+function resize(){const a=$('plot-area');const w=a.clientWidth,h=a.clientHeight;
+  for(const id of['webgpu-canvas','text-canvas']){const c=$(id);c.width=w*devicePixelRatio;c.height=h*devicePixelRatio;c.style.width=w+'px';c.style.height=h+'px';}
+  if(gpu.dev)mkMSAA();}
+async function init(){resize();const ok=await initGPU();if(!ok)return;
+  initStars();setupUI();setupInput();const p=getParams();updateNorm(p);
+  LC=computeLocus(p,5000,500);initParticles();onK();loop();
+  window.addEventListener('resize',()=>{resize();onK();});}
+window.addEventListener('DOMContentLoaded',init);
+</script>
+</body>
+</html>
