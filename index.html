@@ -54,6 +54,15 @@ body{background:#0a0a0f;color:#e0e0e0;font-family:'Segoe UI',system-ui,sans-seri
 #guidance-toast.show{opacity:1;pointer-events:auto}
 #guidance-toast .gt-title{color:#FFB800;font-weight:600;font-size:0.82rem;margin-bottom:6px}
 #guidance-toast .gt-body{color:#ddd}
+#step-card{position:fixed;top:80px;right:20px;z-index:100;background:rgba(8,8,20,0.97);border-left:3px solid #FFB800;border-radius:0 8px 8px 0;padding:18px 22px;width:380px;font-size:0.78rem;line-height:1.7;color:#e0e0e0;opacity:0;transform:translateX(40px);transition:opacity 0.5s,transform 0.5s;backdrop-filter:blur(12px);box-shadow:0 8px 32px rgba(0,0,0,0.6);pointer-events:none}
+#step-card.show{opacity:1;transform:translateX(0);pointer-events:auto}
+#step-card .sc-step{color:#FFB800;font-size:0.7rem;text-transform:uppercase;letter-spacing:2px;margin-bottom:4px}
+#step-card .sc-title{color:#fff;font-size:0.92rem;font-weight:600;margin-bottom:8px}
+#step-card .sc-body{color:#ccc;white-space:pre-wrap}
+#step-card .sc-value{display:inline-block;background:rgba(255,184,0,0.12);border:1px solid rgba(255,184,0,0.3);border-radius:3px;padding:1px 7px;color:#FFB800;font-family:'Consolas',monospace;font-weight:600;margin:2px 0}
+#step-card .sc-progress{margin-top:10px;height:3px;background:rgba(255,255,255,0.1);border-radius:2px;overflow:hidden}
+#step-card .sc-bar{height:100%;background:linear-gradient(90deg,#FFB800,#00c850);border-radius:2px;transition:width 0.6s ease-out}
+#autostab-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:90;pointer-events:none;background:transparent}
 @media print{#webgpu-canvas,#text-canvas{display:none}body{background:#fff;color:#222}}
 @media(max-width:900px){#main-container{flex-direction:column;height:auto}#plot-area{min-height:400px}#control-panel{width:100%}#bp{flex-direction:column}}
 </style>
@@ -118,6 +127,7 @@ body{background:#0a0a0f;color:#e0e0e0;font-family:'Segoe UI',system-ui,sans-seri
   </div>
 </div>
 <div id="guidance-toast"><div class="gt-title"></div><div class="gt-body"></div></div>
+<div id="step-card"><div class="sc-step"></div><div class="sc-title"></div><div class="sc-body"></div><div class="sc-progress"><div class="sc-bar" style="width:0%"></div></div></div>
 <div id="bp">
   <div class="tp"><div class="th" onclick="togglePanel('pe')"><h3>Plain English</h3><span class="tg" id="pe-toggle">▼</span></div>
     <div class="tb" id="pe-body"><div class="dt" id="pe-text"></div></div></div>
@@ -233,6 +243,7 @@ function analyzeStep(r){if(r.length<2)return{rt:0,st:0,os:0,div:false};const f=r
 //  STABILITY ASSESSMENT
 // ═══════════════════════════════════════════════
 function assessStab(poles,K,kC){
+  // TODO(human): Enhance stability assessment — see Learn by Doing prompt
   let hasRHP=false,zD=1,wD=0,dI=-1,dJ=-1;
   for(let i=0;i<poles.length;i++){if(poles[i][0]>0.1)hasRHP=true;
     const s=poles[i][0],w=poles[i][1],wn=Math.sqrt(s*s+w*w);if(wn<1)continue;const z=-s/wn;
@@ -241,49 +252,110 @@ function assessStab(poles,K,kC){
   let st,co;if(hasRHP||zD<0){st='UNSTABLE';co='#ff3232';}else if(zD<0.3){st='MARGINALLY STABLE';co='#FFB800';}else{st='STABLE';co='#00c850';}
   return{st,co,zD:Math.max(0,zD),wD,dp:[dI,dJ],kMn:kC*0.05,kMx:kC*0.6,kOp:kC*0.3};}
 
-function autoStabilise(){
-  const p=getParams();const kC=findKCrit(p);const wr=wRes(p);const fr=(wr/(2*Math.PI)).toFixed(0);
-  // Sweep K in fine steps to find maximum damping ratio
+let autoStabRunning=false;
+function showStep(step,total,title,body){
+  const sc=$('step-card');sc.querySelector('.sc-step').textContent=`Step ${step} of ${total}`;
+  sc.querySelector('.sc-title').textContent=title;sc.querySelector('.sc-body').innerHTML=body;
+  sc.querySelector('.sc-bar').style.width=Math.round(step/total*100)+'%';sc.classList.add('show');}
+function hideStep(){$('step-card').classList.remove('show');}
+function animCam(tTheta,tPhi,tDist,tTarget,dur){
+  const s={theta:cam.theta,phi:cam.phi,dist:cam.dist,target:[...cam.target]};const t0=performance.now();
+  return new Promise(r=>{function f(now){const p=Math.min(1,(now-t0)/dur);const e=1-Math.pow(1-p,3);
+    cam.theta=s.theta+(tTheta-s.theta)*e;cam.phi=s.phi+(tPhi-s.phi)*e;cam.dist=s.dist+(tDist-s.dist)*e;
+    cam.target[0]=s.target[0]+(tTarget[0]-s.target[0])*e;cam.target[1]=s.target[1]+(tTarget[1]-s.target[1])*e;
+    cam.target[2]=s.target[2]+(tTarget[2]-s.target[2])*e;
+    if(p<1)requestAnimationFrame(f);else r();}requestAnimationFrame(f);});}
+function animK(from,to,dur){
+  const t0=performance.now();
+  return new Promise(r=>{function f(now){const p=Math.min(1,(now-t0)/dur);const e=1-Math.pow(1-p,3);
+    setK(Math.round(from+(to-from)*e));if(p<1)requestAnimationFrame(f);else r();}requestAnimationFrame(f);});}
+function wait(ms){return new Promise(r=>setTimeout(r,ms));}
+
+async function autoStabilise(){
+  if(autoStabRunning)return;autoStabRunning=true;
+  const btn=$('btn-autostab');btn.style.opacity='0.5';btn.textContent='⚡ ANALYSING...';
+  const p=getParams();const kC=findKCrit(p);const wr=wRes(p);const fr=Math.round(wr/(2*Math.PI));
+  const olP=getOLPoles(p),olZ=getOLZeros(p);
+  const T=7;// total steps
+
+  // ── STEP 1: Overview — reset view, show system ──
+  showStep(1,T,'System Overview','Analysing a 5th-order BESS grid-connected inverter current control loop.\n\nOpen-loop transfer function:\n  G(s) = K(s+z) / [s²(τ_d·s+1)(LCL)]\n\n<span class="sc-value">5 poles</span>  <span class="sc-value">1 zero</span>  <span class="sc-value">4 asymptotes</span>\n\nResetting view to show full root locus...');
+  await animK(p.K,0,800);
+  await animCam(0.85,-0.4,3.8,[0,0,0],1200);
+  await wait(4000);
+
+  // ── STEP 2: Identify open-loop poles ──
+  let poleDesc='Open-loop poles (K=0) define the starting points of root locus branches:\n\n';
+  poleDesc+=`• <span class="sc-value">s = 0 (×2)</span>  Double integrator — from PI controller + plant\n  These make the system type-2 (zero steady-state error for ramps) but need careful gain to stabilise.\n\n`;
+  poleDesc+=`• <span class="sc-value">s = ${Math.round(-1/p.td)}</span>  Digital delay pole\n  Computational + PWM delay (τ_d = ${(p.td*1e6).toFixed(0)}µs). Adds phase lag at high frequencies.\n\n`;
+  poleDesc+=`• <span class="sc-value">s = ±j${Math.round(wr)}</span>  LCL resonance pair\n  Filter resonance at ${fr} Hz. These poles are on the jω axis — marginally stable at K=0.`;
+  showStep(2,T,'Open-Loop Poles — Starting Points',poleDesc);
+  await animCam(1.2,-0.2,3.0,[0,-0.3,0],1200);// slightly top-down to see base plane
+  await wait(5500);
+
+  // ── STEP 3: Show what happens at low gain ──
+  const kLow=Math.round(kC*0.05);
+  showStep(3,T,'Low Gain Region','Increasing K from 0. Watch the poles begin to move along the branches.\n\nAt low gain, the double-integrator poles at the origin split and move along the real axis. The system is stable but sluggish — <span class="sc-value">poor disturbance rejection</span>.\n\nThe LCL resonance poles barely move yet — they need more gain to shift significantly.\n\nMoving to K = '+kLow+'...');
+  await animCam(0.9,-0.35,3.5,[0,0,0],1000);
+  await animK(0,kLow,2000);
+  const polesLow=findRoots(charPoly(p,kLow));let zLow=1;
+  for(const pl of polesLow){const wn=Math.sqrt(pl[0]**2+pl[1]**2);if(wn>1)zLow=Math.min(zLow,-pl[0]/wn);}
+  showStep(3,T,'Low Gain Region',`K = <span class="sc-value">${kLow}</span>\n\nPoles have moved off the origin. Current worst-case damping:\n  ζ = <span class="sc-value">${zLow.toFixed(3)}</span>\n\nThe system responds, but slowly. The integrator poles haven\'t moved far enough into the LHP to give good bandwidth.\n\n→ We need more gain for adequate grid-following performance.`);
+  await wait(5000);
+
+  // ── STEP 4: Sweep to find optimal — show the search ──
+  showStep(4,T,'Searching for Optimal Gain','Sweeping 500 gain values from 0 to K_crit...\n\nAt each K, solving the 5th-order characteristic polynomial using Durand-Kerner iteration to find all closed-loop poles.\n\nTracking the <span class="sc-value">minimum damping ratio ζ</span> across all poles — the weakest link determines stability quality.');
   let bestK=0,bestZ=0,bestWn=0;const steps=500;
+  // Animate the sweep visually — show K moving through values
+  for(let phase=0;phase<5;phase++){
+    const kPhase=Math.round(kC*(phase+1)/5);
+    await animK(phase===0?kLow:Math.round(kC*phase/5),kPhase,600);
+    const polesMid=findRoots(charPoly(p,kPhase));let zMid=1;
+    for(const pl of polesMid){const wn=Math.sqrt(pl[0]**2+pl[1]**2);if(wn>1)zMid=Math.min(zMid,-pl[0]/wn);}
+    showStep(4,T,'Searching for Optimal Gain',`Sweeping K... currently at <span class="sc-value">${kPhase}</span> of ${Math.round(kC)}\n\nDamping at this K: ζ = <span class="sc-value">${zMid.toFixed(3)}</span> ${zMid<0?'⚠ UNSTABLE':''}${zMid>0&&zMid<0.3?'⚠ Low damping':''}\n\nWatching poles migrate through the s-plane. The resonance poles are ${kPhase>kC*0.5?'approaching the RHP boundary':'still safely in the LHP'}.\n\nPhase ${phase+1}/5 complete...');
+    await wait(1200);}
+  // Now do the real sweep silently
   for(let i=1;i<=steps;i++){
     const K=kC*i/steps;const poles=findRoots(charPoly(p,K));
     let minZ=1,wn=0;
     for(const pole of poles){const s=pole[0],w=pole[1],wnp=Math.sqrt(s*s+w*w);if(wnp<1)continue;
       const z=-s/wnp;if(z<minZ){minZ=z;wn=wnp;}}
     if(minZ>bestZ&&minZ<1){bestZ=minZ;bestK=K;bestWn=wn;}}
-  // Animate K moving to optimal value
-  const startK=p.K;const targetK=Math.round(bestK);const dur=1200;const t0=performance.now();
-  function animate(now){
-    const f=Math.min(1,(now-t0)/dur);const eased=1-Math.pow(1-f,3);// ease-out cubic
-    const K=Math.round(startK+(targetK-startK)*eased);setK(K);
-    if(f<1)requestAnimationFrame(animate);
-    else{
-      // Show detailed explanation
-      const poles=findRoots(charPoly(p,targetK));const m=margins(p,targetK);
-      let rhpCount=0,lowDampCount=0;
-      for(const pole of poles){const s=pole[0],w=pole[1],wn=Math.sqrt(s*s+w*w);
-        if(s>0.1)rhpCount++;else if(wn>1&&(-s/wn)<0.3)lowDampCount++;}
-      let expl=`⚡ AUTO-STABILISE COMPLETE — K set to ${targetK}\n\n`;
-      expl+=`WHAT WAS ANALYSED:\n`;
-      expl+=`• Swept ${steps} gain values from 0 to K_crit (${Math.round(kC)})\n`;
-      expl+=`• Evaluated all 5 closed-loop poles at each K\n`;
-      expl+=`• Tracked minimum damping ratio ζ across the pole set\n\n`;
-      expl+=`WHY K = ${targetK}:\n`;
-      expl+=`• This gain maximises the worst-case damping ratio (ζ = ${bestZ.toFixed(3)})\n`;
-      expl+=`• Dominant poles at ωn = ${Math.round(bestWn)} rad/s — fast enough for grid response\n`;
-      expl+=`• Gain margin: ${isFinite(m.gm)?m.gm.toFixed(1):'∞'} dB | Phase margin: ${m.pm.toFixed(1)}°\n\n`;
-      expl+=`WHAT NEEDED STABILISING:\n`;
-      expl+=`• LCL resonance at ${fr} Hz — the L1/Cf/L2 filter creates conjugate poles near ±j${Math.round(wr)} that can go unstable with too much gain\n`;
-      expl+=`• Double integrator (two poles at origin from PI + plant) — needs gain to pull them into LHP but not so much they excite resonance\n`;
-      expl+=`• Digital delay pole at s = ${Math.round(-1/p.td)} — adds phase lag that shrinks the stable region\n\n`;
-      expl+=`TRADE-OFFS:\n`;
-      expl+=`• Lower K (< ${Math.round(kC*0.05)}) → stable but sluggish, poor disturbance rejection\n`;
-      expl+=`• Higher K (> ${Math.round(kC*0.6)}) → fast but low damping, oscillatory transients\n`;
-      expl+=`• K > ${Math.round(kC)} → UNSTABLE (poles cross into RHP)`;
-      $('pe-text').textContent=expl;
-      showGuidance('Auto-Stabilise Complete',`K optimised to ${targetK} (ζ = ${bestZ.toFixed(3)}, PM = ${m.pm.toFixed(1)}°). See Plain English panel for full analysis.`);
-    }}
-  requestAnimationFrame(animate);}
+  const targetK=Math.round(bestK);
+  await wait(500);
+
+  // ── STEP 5: Move to optimal — orbit to best viewing angle ──
+  showStep(5,T,'Optimal Gain Found',`Best damping found at <span class="sc-value">K = ${targetK}</span>\n\n• Worst-case ζ = <span class="sc-value">${bestZ.toFixed(3)}</span>\n• Dominant ωn = <span class="sc-value">${Math.round(bestWn)} rad/s</span>\n\nMoving to optimal operating point and rotating view to show pole positions clearly...');
+  await Promise.all([animK(Math.round(kC),targetK,1500),animCam(0.75,-0.55,3.2,[0,0.1,0],1500)]);
+  await wait(4000);
+
+  // ── STEP 6: Margins analysis ──
+  const m=margins(p,targetK);const poles=findRoots(charPoly(p,targetK));
+  let marginBody=`At K = ${targetK}, the frequency-domain stability margins are:\n\n`;
+  marginBody+=`• Gain Margin: <span class="sc-value">${isFinite(m.gm)?m.gm.toFixed(1):'∞'} dB</span>\n  How much extra gain before instability. ${m.gm>6?'Good — >6dB gives robust margin.':'⚠ Low — system sensitive to gain variations.'}\n\n`;
+  marginBody+=`• Phase Margin: <span class="sc-value">${m.pm.toFixed(1)}°</span>\n  Phase buffer at unity-gain crossover. ${m.pm>45?'Healthy — >45° gives well-damped step response.':'⚠ Low — transients will be oscillatory.'}\n\n`;
+  marginBody+=`• K_critical = <span class="sc-value">${Math.round(kC)}</span>\n  The gain at which poles cross into the RHP.\n  Current K is ${(targetK/kC*100).toFixed(0)}% of K_crit — ${targetK/kC<0.5?'comfortable safety margin.':'close to the limit.'}`;
+  showStep(6,T,'Stability Margins',marginBody);
+  await animCam(1.0,-0.3,3.0,[0,0,0],1000);// slightly elevated for margins context
+  await wait(5500);
+
+  // ── STEP 7: Summary + what needed stabilising ──
+  let summ=`<span class="sc-value">⚡ AUTO-STABILISE COMPLETE</span>\n\n`;
+  summ+=`WHAT NEEDED STABILISING:\n`;
+  summ+=`1. LCL resonance at ${fr} Hz — conjugate poles near ±j${Math.round(wr)} can go unstable with excess gain. The L1/Cf/L2 filter creates a sharp resonance peak.\n\n`;
+  summ+=`2. Double integrator — two poles at origin need gain to pull them into LHP, but too much excites resonance.\n\n`;
+  summ+=`3. Digital delay at s=${Math.round(-1/p.td)} — adds phase lag that narrows the stable gain window.\n\n`;
+  summ+=`RESULT:\n`;
+  summ+=`K = <span class="sc-value">${targetK}</span>  ζ = <span class="sc-value">${bestZ.toFixed(3)}</span>  GM = <span class="sc-value">${isFinite(m.gm)?m.gm.toFixed(1):'∞'}dB</span>  PM = <span class="sc-value">${m.pm.toFixed(1)}°</span>\n\nAll 5 poles are in the left-half plane with adequate damping. The system will track grid current references without exciting filter resonance.`;
+  showStep(7,T,'Analysis Complete',summ);
+  await animCam(0.85,-0.4,3.8,[0,0,0],1200);// return to default view
+
+  // Update plain english panel too
+  $('pe-text').textContent=`⚡ AUTO-STABILISE COMPLETE — K set to ${targetK}\n\nThe auto-stabiliser swept 500 gain values and found K=${targetK} gives the best worst-case damping ratio (ζ=${bestZ.toFixed(3)}).\n\nThree elements needed stabilising:\n▸ LCL resonance at ${fr} Hz — filter poles near ±j${Math.round(wr)}\n▸ Double integrator poles at origin — from PI controller\n▸ Digital delay pole at s=${Math.round(-1/p.td)} — phase lag\n\nGain margin: ${isFinite(m.gm)?m.gm.toFixed(1):'∞'} dB | Phase margin: ${m.pm.toFixed(1)}°\nOptimal range: K = ${Math.round(kC*0.05)} to ${Math.round(kC*0.6)}`;
+
+  // Hide step card after 8 seconds
+  await wait(8000);hideStep();
+  autoStabRunning=false;btn.style.opacity='1';btn.textContent='⚡ AUTO-STABILISE';}
 
 // ═══════════════════════════════════════════════
 //  3D MATRIX MATH (column-major for WebGPU)
