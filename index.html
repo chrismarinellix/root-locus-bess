@@ -75,7 +75,7 @@ body{background:#0a0a0f;color:#e0e0e0;font-family:'Segoe UI',system-ui,sans-seri
 </div>
 <div id="main-container">
   <div id="plot-area">
-    <div id="gpu-error">WebGPU Required<br><span>Chrome 113+ or Edge 113+</span></div>
+    <div id="gpu-error" style="display:none;position:absolute;inset:0;z-index:50;background:#0a0a0f;color:#ff6b6b;font-size:1.2rem;justify-content:center;align-items:center;text-align:center;padding:40px;flex-direction:column;gap:16px">WebGPU Required<br><span>Chrome 113+ or Edge 113+. Open DevTools (F12) for details.</span></div>
     <canvas id="webgpu-canvas"></canvas>
     <canvas id="text-canvas"></canvas>
     <canvas id="step-response-canvas"></canvas>
@@ -793,14 +793,23 @@ function togglePanel(id){$(id+'-body').classList.toggle('hd');$(id+'-toggle').cl
 // ═══════════════════════════════════════════════
 //  MAIN LOOP
 // ═══════════════════════════════════════════════
-function loop(){render();drawText();requestAnimationFrame(loop);}
+function loop(){try{render();drawText();}catch(e){console.error('Render error:',e);}requestAnimationFrame(loop);}
 function resize(){const a=$('plot-area');const w=a.clientWidth,h=a.clientHeight;
   for(const id of['webgpu-canvas','text-canvas']){const c=$(id);c.width=w*devicePixelRatio;c.height=h*devicePixelRatio;c.style.width=w+'px';c.style.height=h+'px';}
   if(gpu.dev)mkMSAA();}
-async function init(){resize();const ok=await initGPU();if(!ok)return;
-  initStars();setupUI();setupInput();const p=getParams();updateNorm(p);
-  LC=computeLocus(p,5000,500);initParticles();onK();loop();
-  window.addEventListener('resize',()=>{resize();onK();});}
+async function init(){
+  try{
+    resize();
+    const ok=await initGPU();
+    if(!ok){console.error('WebGPU init failed');return;}
+    initStars();setupUI();setupInput();const p=getParams();updateNorm(p);
+    LC=computeLocus(p,5000,500);initParticles();onK();loop();
+    window.addEventListener('resize',()=>{resize();onK();});
+  }catch(e){
+    console.error('Init error:',e);
+    $('gpu-error').style.display='flex';
+    $('gpu-error').innerHTML=`Initialization Error<br><span>${e.message}</span><br><span style="margin-top:8px;font-size:0.7rem;color:#888">${e.stack||''}</span>`;
+  }}
 window.addEventListener('DOMContentLoaded',init);
 </script>
 </body>
